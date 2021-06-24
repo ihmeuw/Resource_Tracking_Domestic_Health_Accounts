@@ -15,4 +15,4 @@ By the time of each of our publications, cleaned code should be available in thi
 ## Links to IHME and Resource Tracking
 * You may find the [main IHME website here](http://www.healthdata.org/)
 * You may find a list of the [Resource Tracking team's publications here](http://www.healthdata.org/health-financing/publications). 
-* You may find the interactive [Resource Tracking team visualizations here](https://vizhub.healthdata.org/dex/) and [here](https://vizhub.healthdata.org/fgh/). 
+* You may find the interactive [Resource Tracking team visualizations here](https://vizhub.healthdata.org/fgh/). 
