@@ -1,5 +1,5 @@
 # Resource Tracking - Domestic Health Accounts subteam
-This repository contains cleaned code that the Resource Tracking Domestic Health Accounts (DHA) sub-team used to generate results for their publications.
+This repository contains cleaned code that the Resource Tracking Domestic Health Accounts sub-team used to generate results for their publications.
 
 ## Navigating this repository 
 By the time of each of our publications, cleaned code should be available in this repository. You can view the code for a particular publication by selecting the relevant branch from the dropdown menu, or by selecting a link below. For ease of navigation, direct links are only provided for the most recent publication for each topic. 
