@@ -6,7 +6,7 @@ By the time of each of our publications, cleaned code should be available in thi
 
 ## Links to recent publications 
 
-*
+*[Estimating total spending by source of funding on routine and supplementary immunisation activities in low-income and middle-income countries, 2000–17: a financial modelling study] (https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(21)01591-9/fulltext) 
 *
 *
 
