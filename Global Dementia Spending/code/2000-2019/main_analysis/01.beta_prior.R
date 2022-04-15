@@ -71,3 +71,4 @@ write.csv(cmc_data1,
 
 
 
+>>>>>>> be9941635e6d7bcb4f4a5e61cfffb2ab4706189b

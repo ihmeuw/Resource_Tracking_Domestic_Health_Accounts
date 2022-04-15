@@ -128,4 +128,5 @@ mod.n <- glht(ma_model_cs, linfct = c("intrcpt  + care_SettingNR = 1"))
 confint(mod.n)
 
 # Estimating p-value for facility
+
 summary(glht(ma_model_cs, linfct = c("intrcpt + care_SettingFac  = 1 ")))

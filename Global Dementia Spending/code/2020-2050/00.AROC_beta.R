@@ -35,4 +35,5 @@ beta_aroc <- create_metric(beta_l,
               id_var = c('year_id', 'location_id', 'location_name'), 
               aroc_years = c(2000, 2019))
 
+
 fwrite(beta_aroc, paste0(root, 'FILEPATH'), row.names = F)

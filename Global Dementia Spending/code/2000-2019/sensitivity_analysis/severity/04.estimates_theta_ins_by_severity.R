@@ -78,5 +78,3 @@ data[, ratio := ((beta * (1 - bi))/((1-beta)*bi))]
 data[, theta := gamma * ratio]
 
 fwrite(data, "FILEPATH")
-
-fwrite(data, "FILEPATH")

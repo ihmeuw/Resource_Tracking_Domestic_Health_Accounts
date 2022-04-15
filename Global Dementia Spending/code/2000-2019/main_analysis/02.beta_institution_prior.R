@@ -66,5 +66,3 @@ write.csv(cmc_data1,
           "FILEPATH",
           row.names = FALSE)
 
-
-

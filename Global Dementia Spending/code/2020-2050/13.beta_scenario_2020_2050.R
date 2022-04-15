@@ -137,5 +137,3 @@ for (loc in locs){
   # 
 }
 
-
-

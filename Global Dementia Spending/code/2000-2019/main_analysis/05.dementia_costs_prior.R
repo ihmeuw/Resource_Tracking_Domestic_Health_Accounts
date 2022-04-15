@@ -162,3 +162,4 @@ total <- eve[cost_components == 'total' & care_settings != 'not reported', ]
 fwrite(total, 
        "FILEPATH", 
        row.names = F)
+>>>>>>> be9941635e6d7bcb4f4a5e61cfffb2ab4706189b
