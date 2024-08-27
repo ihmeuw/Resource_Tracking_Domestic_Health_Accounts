@@ -6,6 +6,8 @@ By the time of each of our publications, cleaned code should be available in thi
 
 ## Links to recent publications 
 
+*[U.S. dementia care spending by state: 2010-2019] (https://alz-journals.onlinelibrary.wiley.com/doi/full/10.1002/alz.13746)*
+
 *[Estimating total spending by source of funding on routine and supplementary immunisation activities in low-income and middle-income countries, 2000–17: a financial modelling study] (https://www.thelancet.com/journals/lancet/article/PIIS0140-6736(21)01591-9/fulltext)*
 
 *[Global and regional spending on dementia care from 2000–2019 and expected future health spending scenarios from 2020–2050: An economic modelling exercise] (https://www.thelancet.com/journals/eclinm/article/PIIS2589-5370(22)00067-0/fulltext)*
