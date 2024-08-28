@@ -1,3 +1,0 @@
-# Update Covariates for RTR 
-
-This directory contains scripts to update the covariate data used in the caregiving stage 1 models. These models are being updated to include a new source from Nigeria. However, ST-GPR no longer works for the release_id we were using previously (6, GBD 2019). It now only works for the latest release (16, GBD 2023). To run ST-GPR with release 16, we need our custom stage 1 model to make predictions through 2024 and for the release_id 16 location set, which has been updated since release 6. So, the covariate data used for the caregiving models (care hours and caregiver sex) need to be updated to reflect the GBD 2023 year and location hierarchy. 
