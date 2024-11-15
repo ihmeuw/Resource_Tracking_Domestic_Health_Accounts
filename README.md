@@ -12,6 +12,8 @@ By the time of each of our publications, cleaned code should be available in thi
 
 *[Global and regional spending on dementia care from 2000–2019 and expected future health spending scenarios from 2020–2050: An economic modelling exercise] (https://www.thelancet.com/journals/eclinm/article/PIIS2589-5370(22)00067-0/fulltext)*
 
+*[Examining malaria treatment and prevention spending efficiency in malaria-endemic countries, 2000-2020] (https://link.springer.com/content/pdf/10.1186/s12936-024-05165-w.pdf)*
+
 
 *Please note that code for previous versions of results may be found in the `Branch` dropdown menu*.
 
