@@ -1,0 +1,546 @@
+Title:    06a_regression_analysis.Rmd
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : To create regression models for literature-based adjustment
+     
+ Author: USERNAME
+ Date: 2025 03 07
+ 
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "ADDRESS", paste0("ADDRESS", Sys.info()['user'][1], "ADDRESS")))
+}
+
+# packages
+library(data.table)
+library(lme4)
+library(lmerTest)
+
+# file paths
+data_dir <- "FILEPATH"
+model_data_path <- paste0(data_dir, "FILEPATH")
+pred_shell_all_ages_agg_path <- paste0(data_dir, "FILEPATH")
+
+# functions
+source("FILEPATH")
+source("FILEPATH")
+source("FILEPATH")
+source(paste0(code_repo, 'FILEPATH'))
+
+# release number
+gbd_release_id <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = gbd_release_id
+)
+
+```
+
+Import data
+```{r}
+# model input data
+model_dt <- fread(model_data_path)
+
+# prediction dataset
+pred_shell_all_ages_agg_dt <- fread(pred_shell_all_ages_agg_path)
+pred_shell_all_ages_agg_dt[, age_group_class := "All Ages"]
+pred_shell_all_ages_agg_dt[, population_age_adj := "All Ages"]
+
+```
+
+Data info
+```{r}
+locs <- sort(unique(model_dt$location_id))
+years <- c(2000:2019)
+age_groups <- c(1, 6:20, 30, 160)
+sex <- c(1, 2)
+```
+
+Log transforming data
+```{r}
+# log transforming model input data
+model_dt[, `:=` (lg_bhi_per_inc_prev_val = log(bhi_per_inc_prev_val), 
+                 lg_lit_per_inc_prev_val = log(lit_per_inc_prev_val_new))]
+
+# GDP per capita
+model_dt[, lg_gdp_pc := log(gdp_pc)]
+
+# Domestic health spending per capita
+model_dt[, lg_dhe_pc := log(domestic_per_capita)]
+
+# Government health spending per capita
+model_dt[, lg_ghe_pc := log(ghes_per_capita)]
+
+# Pulling all age and sex population estimates
+model_locs <- sort(unique(model_dt$location_id))
+model_pops <- get_population(location_id = model_locs, 
+                       year_id = years, 
+                       age_group_id = 22,
+                       sex_id = 3,
+                       release_id = gbd_release_id)
+
+# Adding all age and sex population to model dataset
+model_dt <- merge(model_dt, model_pops[, .(location_id,
+                                           year_id,
+                                           tote_pop = population)], by = c("location_id", "year_id"), all.x = T)
+
+```
+
+Log transforming covariates
+```{r}
+# setting offset value
+bhi_offset_val <- 1e-10
+
+# retaining pre-adjusted values
+pred_shell_all_ages_agg_dt[, og_bhi_per_inc_prev_val := bhi_per_inc_prev_val]
+
+# offsetting values
+pred_shell_all_ages_agg_dt[, bhi_per_inc_prev_val := (bhi_per_inc_prev_val + bhi_offset_val)]
+
+# log transforming bhi values
+pred_shell_all_ages_agg_dt[, `:=` (lg_bhi_per_inc_prev_val = log(bhi_per_inc_prev_val), 
+                                   lg_ghe_pc = log(ghes_per_capita))]
+```
+
+################################################################################
+TYPE OF CARE SPECIFIC MODELS
+################################################################################
+
+Storing universal model info
+```{r}
+set.seed(123)
+
+# set control
+control_iter <- lmerControl(optimizer = "bobyqa",
+                            optCtrl = list(maxfun = 200000),
+                            check.conv.singular = .makeCC(action = "warning",
+                                                          tol = 1e-6))
+```
+
+Identifying outliered data points
+```{r}
+# Creating proportional difference column
+model_dt[, prop_diff := (lit_per_inc_prev_val_new / bhi_per_inc_prev_val)]
+
+# setting threshold
+threshold <- 20
+
+# identifying outliered values
+model_dt[, outlier_id := ifelse((prop_diff < (1/threshold) | prop_diff > (threshold)), 1, 0)]
+
+```
+
+AM Model
+```{r}
+# Filtering for toc
+model_dt_AM <- model_dt[type_of_care == "raked_mean_AM" & outlier_id == 0]
+
+# final model with regional intercepts
+mod_AM <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_AM)
+
+```
+
+IP
+```{r}
+# Filtering for toc
+model_dt_IP <- model_dt[type_of_care == "raked_mean_IP" & outlier_id == 0]
+
+# final model with regional intercepts
+mod_IP <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (1 | disorder_classification) +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_IP)
+
+```
+
+RX
+```{r}
+# Filtering for toc
+model_dt_RX <- model_dt[type_of_care == "raked_mean_RX" & outlier_id == 0]
+
+# final model with regional intercepts
+mod_RX <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_RX)
+
+```
+
+ED + HH + NF
+```{r}
+# Filtering for specific tocs
+model_dt_ED_HH_NF <- model_dt[type_of_care %in% c("raked_mean_ED", 
+                                                  "raked_mean_HH",
+                                                  "raked_mean_NF") & outlier_id == 0]
+# final model with regional and cause specific intercepts
+mod_HH_ED_NF <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | location_name:type_of_care) +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_ED_HH_NF)
+
+```
+
+Combining all model datasets
+```{r}
+model_input_dt <- rbindlist(list(model_dt_AM, model_dt_IP, model_dt_RX, model_dt_ED_HH_NF))
+
+# removing extra columns
+model_input_dt[, `:=` (mult_factor = NULL,
+                       sample_size = NULL,
+                       unit = NULL,
+                       sampling_period = NULL,
+                       base_year = NULL,
+                       currency = NULL,
+                       currency_col = NULL,
+                       eur_usd = NULL,
+                       deflator = NULL,
+                       lcu_usd = NULL,
+                       gdp_pc = NULL,
+                       pop_65_frac = NULL,
+                       population_age_adj = NULL,
+                       haqi_val = NULL,
+                       age_group_class = NULL)]
+```
+
+
+################################################################################
+PREDICTED VALUES
+################################################################################
+
+################################################################################
+AM
+################################################################################
+
+AM predict values
+```{r}
+# AM prediction dataset
+pred_dt_AM <- pred_shell_all_ages_agg_dt[type_of_care == "raked_mean_AM"]
+
+
+# predict function
+pred_re_function_AM <- function(fit_mod){
+                                predict(fit_mod, 
+                                newdata = pred_dt_AM, 
+                                allow.new.levels = TRUE, 
+                                re.form = NULL) }
+
+# Number of draws
+sims <- 500
+seed_val <- 123
+
+# bootMer
+boot_mod_AM <- bootMer(mod_AM, 
+                       FUN = pred_re_function_AM,
+                       type = "semiparametric",
+                       nsim = sims,
+                       seed = seed_val,
+                       use.u = T)
+
+# transpose bootMer outputs
+boot_mod_AM_matrix <- t(boot_mod_AM[["t"]])
+
+# convert to data.table
+boot_mod_AM_draws_dt <- data.table(boot_mod_AM_matrix)
+
+# draw columns
+draw_col_names <- paste0("Draw_", 1:sims)
+colnames(boot_mod_AM_draws_dt) <- draw_col_names
+
+# exponentiate and remove offset
+boot_mod_AM_draws_dt[, (draw_col_names) := lapply(.SD, function(x) exp(x)),.SDcols = draw_col_names]
+boot_mod_AM_draws_dt[, (draw_col_names) := lapply(.SD, function(x) x - bhi_offset_val)]
+boot_mod_AM_draws_dt[, (draw_col_names) := lapply(.SD, function(x) ifelse(x < 0, 0, x))]
+                                
+# adding ID row for merge
+boot_mod_AM_draws_dt[, ID := 1:nrow(boot_mod_AM_draws_dt)]
+
+# creating dataset shell for draws dataset
+pred_dt_AM_draws <- pred_dt_AM[, .(location_id, 
+                                   location_name, 
+                                   year_id, 
+                                   cause_name, 
+                                   cause_id,
+                                   type_of_care,
+                                   disorder_classification,
+                                   population_age,
+                                   bhi_value,
+                                   incident_prevalent_cases,
+                                   og_bhi_per_inc_prev_val,
+                                   bhi_per_inc_prev_val = (bhi_value / incident_prevalent_cases),
+                                   ID = 1:nrow(boot_mod_AM_draws_dt))]
+
+# merging draws dataset
+pred_dt_AM_draws <- merge(pred_dt_AM_draws, boot_mod_AM_draws_dt, by = "ID", all.x = T)
+
+# calculating upper and lower confidence intervals
+pred_dt_AM_draws[, `:=` (draw_mean = rowMeans(.SD, na.rm = TRUE),
+                         lwr = apply(.SD, 1, function(x) quantile(x, probs = 0.025, na.rm = TRUE)),
+                         uppr = apply(.SD, 1, function(x) quantile(x, probs = 0.975, na.rm = TRUE))), .SDcols = draw_col_names]
+
+```
+
+################################################################################
+IP
+################################################################################
+```{r}
+# IP prediction dataset
+pred_dt_IP <- pred_shell_all_ages_agg_dt[type_of_care == "raked_mean_IP"]
+
+# predict function
+pred_re_function_IP <- function(fit_mod){
+                                predict(fit_mod, 
+                                newdata = pred_dt_IP, 
+                                allow.new.levels = TRUE, 
+                                re.form = NULL) }
+
+# number of draws
+sims <- 500
+seed_val <- 123
+
+# bootMer
+boot_mod_IP <- bootMer(mod_IP, 
+                       FUN = pred_re_function_IP,
+                       type = "semiparametric",
+                       nsim = sims,
+                       seed = seed_val,
+                       use.u = T)
+
+# transpose bootMer outputs
+boot_mod_IP_matrix <- t(boot_mod_IP[["t"]])
+
+# convert to data.table
+boot_mod_IP_draws_dt <- data.table(boot_mod_IP_matrix)
+
+# draw columns
+draw_col_names <- paste0("Draw_", 1:sims)
+colnames(boot_mod_IP_draws_dt) <- draw_col_names
+
+# exponentiate and remove offset
+boot_mod_IP_draws_dt[, (draw_col_names) := lapply(.SD, function(x) exp(x)),.SDcols = draw_col_names]
+boot_mod_IP_draws_dt[, (draw_col_names) := lapply(.SD, function(x) x - bhi_offset_val)]
+boot_mod_IP_draws_dt[, (draw_col_names) := lapply(.SD, function(x) ifelse(x < 0, 0, x))]
+                                
+# adding ID row for merge
+boot_mod_IP_draws_dt[, ID := 1:nrow(boot_mod_IP_draws_dt)]
+
+# creating dataset shell for draws dataset
+pred_dt_IP_draws <- pred_dt_IP[, .(location_id, 
+                                   location_name, 
+                                   year_id, 
+                                   cause_name, 
+                                   cause_id,
+                                   type_of_care,
+                                   disorder_classification,
+                                   population_age,
+                                   bhi_value,
+                                   incident_prevalent_cases,
+                                   og_bhi_per_inc_prev_val,
+                                   bhi_per_inc_prev_val = (bhi_value / incident_prevalent_cases),
+                                   ID = 1:nrow(boot_mod_IP_draws_dt))]
+
+# merging draws dataset
+pred_dt_IP_draws <- merge(pred_dt_IP_draws, boot_mod_IP_draws_dt, by = "ID", all.x = T)
+
+# calculating upper and lower confidence intervals
+pred_dt_IP_draws[, `:=` (draw_mean = rowMeans(.SD, na.rm = TRUE),
+                         lwr = apply(.SD, 1, function(x) quantile(x, probs = 0.025, na.rm = TRUE)),
+                         uppr = apply(.SD, 1, function(x) quantile(x, probs = 0.975, na.rm = TRUE))), .SDcols = draw_col_names]
+```
+
+
+################################################################################
+RX
+################################################################################
+
+RX Predicted values
+```{r}
+# RX prediction dataset
+pred_dt_RX <- pred_shell_all_ages_agg_dt[type_of_care == "raked_mean_RX"]
+
+# predict function
+pred_re_function_RX <- function(fit_mod){
+                                predict(fit_mod, 
+                                newdata = pred_dt_RX, 
+                                allow.new.levels = TRUE, 
+                                re.form = NULL) }
+
+# number of draws
+sims <- 500
+seed_val <- 123
+
+# bootMer
+boot_mod_RX <- bootMer(mod_RX, 
+                       FUN = pred_re_function_RX,
+                       type = "semiparametric",
+                       nsim = sims,
+                       seed = seed_val,
+                       use.u = T)
+
+# transpose bootMer outputs
+boot_mod_RX_matrix <- t(boot_mod_RX[["t"]])
+
+# convert to data.table
+boot_mod_RX_draws_dt <- data.table(boot_mod_RX_matrix)
+
+# draw columns
+draw_col_names <- paste0("Draw_", 1:sims)
+colnames(boot_mod_RX_draws_dt) <- draw_col_names
+
+# exponentiate and remove offset
+boot_mod_RX_draws_dt[, (draw_col_names) := lapply(.SD, function(x) exp(x)),.SDcols = draw_col_names]
+boot_mod_RX_draws_dt[, (draw_col_names) := lapply(.SD, function(x) x - bhi_offset_val)]
+boot_mod_RX_draws_dt[, (draw_col_names) := lapply(.SD, function(x) ifelse(x < 0, 0, x))]
+                                
+# adding ID row for merge
+boot_mod_RX_draws_dt[, ID := 1:nrow(boot_mod_RX_draws_dt)]
+
+# creating dataset shell for draws dataset
+pred_dt_RX_draws <- pred_dt_RX[, .(location_id, 
+                                   location_name, 
+                                   year_id, 
+                                   cause_name, 
+                                   cause_id,
+                                   type_of_care,
+                                   disorder_classification,
+                                   population_age,
+                                   bhi_value,
+                                   incident_prevalent_cases,
+                                   og_bhi_per_inc_prev_val,
+                                   bhi_per_inc_prev_val = (bhi_value / incident_prevalent_cases),
+                                   ID = 1:nrow(boot_mod_RX_draws_dt))]
+
+# merging draws dataset
+pred_dt_RX_draws <- merge(pred_dt_RX_draws, boot_mod_RX_draws_dt, by = "ID", all.x = T)
+
+# calculating upper and lower confidence intervals
+pred_dt_RX_draws[, `:=` (draw_mean = rowMeans(.SD, na.rm = TRUE),
+                         lwr = apply(.SD, 1, function(x) quantile(x, probs = 0.025, na.rm = TRUE)),
+                         uppr = apply(.SD, 1, function(x) quantile(x, probs = 0.975, na.rm = TRUE))), .SDcols = draw_col_names]
+```
+
+################################################################################
+ED + HH + NF
+################################################################################
+
+```{r}
+# ED + HH + NF prediction dataset
+pred_dt_ED_HH_NF <- pred_shell_all_ages_agg_dt[type_of_care %in% c("raked_mean_ED",
+                                                                   "raked_mean_HH",
+                                                                   "raked_mean_NF")]
+
+# predict function
+pred_re_function_ED_HH_NF <- function(fit_mod){
+                                predict(fit_mod, 
+                                newdata = pred_dt_ED_HH_NF, 
+                                allow.new.levels = TRUE, 
+                                re.form = NULL) }
+
+# number of draws
+sims <- 500
+seed_val <- 123
+
+# bootMer
+boot_mod_ED_HH_NF <- bootMer(mod_HH_ED_NF, 
+                             FUN = pred_re_function_ED_HH_NF,
+                             type = "semiparametric",
+                             nsim = sims,
+                             seed = seed_val,
+                             use.u = T)
+
+# transpose bootMer outputs
+boot_mod_ED_HH_NF_matrix <- t(boot_mod_ED_HH_NF[["t"]])
+
+# convert to data.table
+boot_mod_ED_HH_NF_draws_dt <- data.table(boot_mod_ED_HH_NF_matrix)
+
+# draw columns
+draw_col_names <- paste0("Draw_", 1:sims)
+colnames(boot_mod_ED_HH_NF_draws_dt) <- draw_col_names
+
+# exponentiate and remove offset
+boot_mod_ED_HH_NF_draws_dt[, (draw_col_names) := lapply(.SD, function(x) exp(x)),.SDcols = draw_col_names]
+boot_mod_ED_HH_NF_draws_dt[, (draw_col_names) := lapply(.SD, function(x) x - bhi_offset_val)]
+boot_mod_ED_HH_NF_draws_dt[, (draw_col_names) := lapply(.SD, function(x) ifelse(x < 0, 0, x))]
+                                
+# adding ID row for merge
+boot_mod_ED_HH_NF_draws_dt[, ID := 1:nrow(boot_mod_ED_HH_NF_draws_dt)]
+
+# creating dataset shell for draws dataset
+pred_dt_ED_HH_NF_draws <- pred_dt_ED_HH_NF[, .(location_id, 
+                                               location_name, 
+                                               year_id, 
+                                               cause_name, 
+                                               cause_id,
+                                               type_of_care,
+                                               disorder_classification,
+                                               population_age,
+                                               bhi_value,
+                                               incident_prevalent_cases,
+                                               og_bhi_per_inc_prev_val,
+                                               bhi_per_inc_prev_val = (bhi_value / incident_prevalent_cases),
+                                               ID = 1:nrow(boot_mod_ED_HH_NF_draws_dt))]
+
+# merging draws dataset
+pred_dt_ED_HH_NF_draws <- merge(pred_dt_ED_HH_NF_draws, boot_mod_ED_HH_NF_draws_dt, by = "ID", all.x = T)
+
+# calculating upper and lower confidence intervals
+pred_dt_ED_HH_NF_draws[, `:=` (draw_mean = rowMeans(.SD, na.rm = TRUE),
+                         lwr = apply(.SD, 1, function(x) quantile(x, probs = 0.025, na.rm = TRUE)),
+                         uppr = apply(.SD, 1, function(x) quantile(x, probs = 0.975, na.rm = TRUE))), .SDcols = draw_col_names]
+```
+
+Combining all type of care predicted values datasets
+```{r}
+pred_dt_draws <- rbindlist(list(pred_dt_AM_draws, pred_dt_IP_draws, pred_dt_RX_draws, pred_dt_ED_HH_NF_draws))
+```
+
+Condensing predicted draws dataset
+```{r}
+pred_dt_draws_cond <- pred_dt_draws[, .(location_id, 
+                                        location_name, 
+                                        year_id, 
+                                        cause_name, 
+                                        cause_id,
+                                        type_of_care,
+                                        disorder_classification,
+                                        population_age,
+                                        bhi_value,
+                                        incident_prevalent_cases,
+                                        bhi_per_inc_prev_val,
+                                        og_bhi_per_inc_prev_val,
+                                        draw_mean,
+                                        lwr,
+                                        uppr)]
+
+```
+
+Saving out modeled dataset
+```{r}
+fwrite(pred_dt_draws, "FILEPATH")
+
+```
+
+Saving out modeled input dataset
+```{r}
+fwrite(model_dt, "FILEPATH")
+
+```

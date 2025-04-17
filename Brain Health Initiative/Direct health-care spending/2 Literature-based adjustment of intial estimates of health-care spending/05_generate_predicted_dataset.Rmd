@@ -1,0 +1,318 @@
+Title:    05_generate_predicted_dataset.Rmd
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : To create predicted dataset for regression
+     
+ Author: USERNAME
+ Date: 2024 06 27
+ 
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots #
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "ADDRESS", paste0("ADDRESS", Sys.info()['user'][1], "ADDRESS")))
+}
+
+# packages
+library(data.table)
+library(lme4)
+library(lmerTest)
+
+# file paths
+file_dir <- "FILEPATH"
+direct_spending_path <- paste0(file_dir, "FILEPATH")
+domestic_health_path <- "FILEPATH"
+data_dir <- "FILEPATH"
+
+# functions
+source("FILEPATH")
+source("FILEPATH")
+source('FILEPATH')
+source("FILEPATH")
+source(paste0(code_repo, 'FILEPATH'))
+
+# release number 
+gbd_release_id <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = gbd_release_id
+)
+
+# storing country-level location ids
+lvl3_locs <- sort(hierarchy[level == 3]$location_id)
+
+# data info
+years <- c(2000:2019)
+
+tocs <- c("raked_mean_AM",
+          "raked_mean_IP",
+          "raked_mean_ED",
+          "raked_mean_HH",
+          "raked_mean_NF",
+          "raked_mean_RX")
+
+```
+
+Import data
+```{r}
+# direct spending dataset
+direct_spending_dt <- fread(direct_spending_path)
+
+# domestic health spending dataset
+dhe_dt <- fread(domestic_health_path)
+
+```
+
+Convert direct spending dataset from wide to long
+```{r}
+direct_spending_dt <- melt(direct_spending_dt, id.vars = c("location_id",
+                                                   "location_name",
+                                                   "year_id",
+                                                   "age_group_id",
+                                                   "age_group_name",
+                                                   "sex_id",
+                                                   "cause_id",
+                                                   "cause_name",
+                                                   "incident_prevalent_cases"), variable.name = "new_spending_type", value.name = "bhi_value",
+                   measure.vars = c("AM", "ED", "HH", "IP", "NF", "RX"))
+
+# adding type of care column
+direct_spending_dt[, type_of_care := ifelse(new_spending_type == "AM", "raked_mean_AM",
+                                                   ifelse(new_spending_type == "ED", "raked_mean_ED",
+                                                          ifelse(new_spending_type == "HH", "raked_mean_HH",
+                                                                 ifelse(new_spending_type == "IP", "raked_mean_IP",
+                                                                        ifelse(new_spending_type == "NF", "raked_mean_NF",
+                                                                               ifelse(new_spending_type == "RX", "raked_mean_RX", NA))))))]
+
+# removing new spending type column
+direct_spending_dt[, new_spending_type := NULL]
+
+```
+
+Aggregate data over ages and sex
+```{r}
+direct_spending_dt_agg <- data.table(aggregate(cbind(bhi_value, incident_prevalent_cases) ~ location_id + location_name + year_id + cause_id + cause_name + type_of_care, data = direct_spending_dt, FUN = sum))
+
+# adding all age and all sex
+direct_spending_dt_agg[, `:=` (age_group_id = 22,
+                               sex_id = 3,
+                               population_age = "all ages")]
+
+```
+
+Adding ihme loc id, super region, and super region name
+```{r}
+direct_spending_dt_agg <- merge(direct_spending_dt_agg, hierarchy[, .(location_id, ihme_loc_id, region_name, super_region_name)], by = "location_id", all.x = TRUE)
+
+```
+
+Creating spending per prevalent case values
+```{r}
+pred_dt <- copy(direct_spending_dt_agg)
+pred_dt[, bhi_per_inc_prev_val := (bhi_value / incident_prevalent_cases)]
+
+```
+
+################################################################################
+COVARIATES
+################################################################################
+
+GDP PC
+```{r}
+# get GDP per capita
+gdp <- data.table(read_feather("FILEPATH"))
+gdp <- gdp[scenario == 0 & year <= 2019 & year >= 2000]
+gdp <- melt.data.table(gdp, id.vars = c("year", "iso3", "scenario"), value.name = "data_var", variable.name = "draw")
+gdp <- gdp[, draw := str_replace(draw, "draw_", "")]
+gdp <- gdp[, draw := as.numeric(as.character(draw))]
+gdp[, scenario := NULL]
+
+# condensing and renaming columns
+gdp <- gdp[year %in% years,
+           .(gdp_pc = mean(data_var)),
+           by = .(year_id = year, ihme_loc_id = iso3)]
+
+# creating gbd dataset
+gdp <- merge(gdp[, .(ihme_loc_id, 
+                        year_id, 
+                        gdp_pc)], hierarchy[, .(location_id, 
+                                                location_name, 
+                                                ihme_loc_id)], by = 'ihme_loc_id')
+
+# currency conversion
+gdp_dt_conv <- currency_conversion(gdp,
+                           col.loc = 'ihme_loc_id',
+                           col.value = 'gdp_pc',
+                           currency = 'usd',
+                           currency.year = 2022 ,
+                           base.year = 2021,
+                           base.unit = 'usd',
+                           converter.version = 7,
+                           simplify = F)
+
+# storing keep columns 
+keep_cols <- c("ihme_loc_id", "year_id", "location_id", "currency_year_new", "gdp_pc_new")
+
+# retaining keep columns
+gdp_dt <- gdp_dt_conv[, ..keep_cols]
+
+# renaming GDP per capita column
+setnames(gdp_dt, old = "gdp_pc_new", new = "gdp_pc")
+
+# removing extra currency year column
+gdp_dt[, currency_year_new := NULL]
+
+```
+
+Fraction of population older than 65
+```{r}
+# getting total population values
+tot_pops_dt <- get_population(location_id = lvl3_locs,
+                              year_id = years,
+                              age_group_id = 22,
+                              sex_id = 3,
+                              release_id = gbd_release_id 
+                              )
+
+# adding ihme loc id
+tot_pops_dt <- merge(tot_pops_dt, hierarchy[, .(location_id, ihme_loc_id)], by = "location_id")
+
+# condensing dataset
+tot_pops_dt <- tot_pops_dt[, .(ihme_loc_id, 
+                               location_id,
+                               year_id, 
+                               population)]
+
+# get population values disaggregated by age
+age_pop_dt <- get_population(location_id = lvl3_locs,
+                       year_id = years,
+                       age_group_id = c(1, 6:20, 30:32, 235),
+                       sex_id = c(1, 2),
+                       release_id = gbd_release_id 
+                       )
+
+# filter for population values of 65+
+pop_over65 <- age_pop_dt[age_group_id %in% c(18:20, 30:32, 235), .(location_id, year_id, age_group_id, sex_id, population)]
+
+# aggregate population values by country and year for population totals of 65+ 
+pop_over65_agg <- data.table(aggregate(population ~ location_id + year_id, data = pop_over65, FUN = sum))
+
+# rename population agg col
+setnames(pop_over65_agg, old = "population", new = "pop_65_and_over")
+
+# merge with total population values
+pop_dt <- merge(pop_over65_agg, tot_pops_dt, by = c("location_id", "year_id"), all.x = T)
+
+# calculate fraction of population that is 65+
+pop_dt[, pop_65_frac := pop_65_and_over / population]
+
+# remove extra total population column
+pop_dt[, `:=` (population = NULL, pop_65_and_over = NULL)]
+
+```
+
+Adding socio-demographic index (SDI)
+```{r}
+# retrieving sdi values
+sdi_dt <- get_covariate_estimates(covariate_id = 881,
+                                   location_id = lvl3_locs,
+                                   year_id =  years,
+                                   release_id = gbd_release_id) 
+
+# condensing dataset
+sdi_dt <- sdi_dt[, .(location_id, 
+                    year_id,
+                    sdi_val = mean_value)]
+
+```
+
+Adding health access and quality index (HAQI)
+```{r}
+# retreiving haqi values
+haqi <- get_covariate_estimates(covariate_id = 1099,
+                                location_id = lvl3_locs,
+                                year_id = years,
+                                release_id = gbd_release_id)
+
+# renaming haqi column
+setnames(haqi, old = "mean_value", new = "haqi_val")
+
+# condense dataset
+haqi_dt <- haqi[, .(location_id, year_id, haqi_val)]
+
+```
+
+Adding domestic health spending data
+```{r}
+# retaining country-level data
+dhe_dt <- dhe_dt[location_id %in% lvl3_locs]
+
+```
+
+Adding covariates to dataset
+```{r}
+pred_dt <- merge(pred_dt, gdp_dt, by = c("location_id", "ihme_loc_id", "year_id"), all.x = T)
+pred_dt <- merge(pred_dt, pop_dt, by = c("location_id", "ihme_loc_id", "year_id"), all.x = T)
+pred_dt <- merge(pred_dt, sdi_dt, by = c("location_id", "year_id"), all.x = T)
+pred_dt <- merge(pred_dt, haqi_dt, by = c("location_id", "year_id"), all.x = T)
+pred_dt <- merge(pred_dt, dhe_dt, by = c("location_id", "year_id"), all.x = T)
+
+```
+
+Adding sex label
+```{r}
+# adding sex label
+pred_dt[sex_id == 3, sex_label := "Both Sexes"]
+
+```
+
+Adding disorder classification
+```{r}
+# mental brain health disorders
+mental_disorders <- c(559,
+                      560,
+                      562,
+                      566,
+                    	567,
+                    	570,
+                    	571,
+                    	572,
+                    	575,
+                    	578,
+                      579,
+                      582,
+                      585,
+                      718,
+                      9999)
+
+# neurological disorders
+neuro_disorders <- c(332,
+                     337,
+                     477,
+                     494,
+                     543,
+                     544,
+                     545,
+                     546,
+                     554,
+                     972)
+
+# adding disorder classification
+pred_dt[, disorder_classification := ifelse(cause_id %in% mental_disorders, "mental",
+                                       ifelse(cause_id %in% neuro_disorders, "neurological", NA))]
+```
+
+Adding interaction variable for cause and type of care
+```{r}
+pred_dt[, causexcare_interaction := interaction(cause_name, type_of_care, sep = "_")]
+
+```
+
+Saving out prediction dataset
+```{r}
+fwrite(pred_dt, paste0(data_dir, "FILEPATH"))
+```

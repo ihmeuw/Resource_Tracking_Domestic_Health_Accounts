@@ -1,0 +1,102 @@
+Title:    04_generate_covariate_correlation_matrix.Rmd
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : To create correlation matrix between BHI data, lit data, and covariates
+           
+     
+ Author: USERNAME
+ Date: 2024 06 07
+ 
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots #
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "ADDRESS", paste0("ADDRESS", Sys.info()['user'][1], "ADDRESS")))
+}
+
+# packages
+library(data.table)
+library(lme4)
+library(lmerTest)
+library(ggcorrplot)
+library(ggplot2)
+library(Hmisc)
+library(gt)
+library(webshot2, lib.loc = paste0(code_repo))
+
+# file paths
+data_dir <- "FILEPATH"
+data_path <- paste0(data_dir, "FILEPATH")
+fig_out_dir <-  "FILEPATH"
+
+# functions
+source("FILEPATH")
+source('FILEPATH')
+source("FILEPATH")
+source(paste0(code_repo, 'FILEPATH'))
+source(paste0(code_repo, 'FILEPATH'))
+
+gbd_release_id <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = gbd_release_id
+)
+
+```
+
+Import data
+```{r}
+dt <- fread(data_path)
+
+```
+
+Data info
+```{r}
+locs <- sort(unique(dt$location_id))
+years <- c(2000:2019)
+age_groups <- c(5:20, 28, 30, 160)
+sex <- c(1, 2)
+
+```
+
+Log transforming data
+```{r}
+# literature data
+lit_offset_val <- quantile(dt[lit_per_prev_val_new != 0]$lit_per_prev_val_new, 0.05, na.rm = T)
+dt[, lit_per_prev_val_new := (lit_per_prev_val_new + lit_offset_val)]
+dt[, `:=` (lg_bhi_per_prev_val = log(bhi_per_prev_val), lg_lit_per_prev_val = log(lit_per_prev_val_new))]
+
+# GDP per capita
+dt[, lg_gdp_pc := log(gdp_pc)]
+
+# Domestic health spending per capita
+dt[, lg_dhe_pc := log(domestic_per_capita)]
+
+# Government health spending per capita
+dt[, lg_ghe_pc := log(ghes_per_capita)]
+
+```
+
+Correlation matrix
+```{r}
+cor_matrix <- cor(dt[, .(lg_gdp_pc,
+                         pop_65_frac,
+                         sdi_val,
+                         haqi_val,
+                         lg_dhe_pc,
+                         lg_ghe_pc,
+                         lg_bhi_per_prev_val,
+                         lg_lit_per_prev_val)], method = "spearman" , use="pairwise.complete.obs")
+
+```
+
+Correlation matrix figure
+```{r}
+corr_fig <- ggcorrplot(cor_matrix, method = "circle", lab = TRUE, title = "Correlation matrix")
+plot(corr_fig)
+
+```

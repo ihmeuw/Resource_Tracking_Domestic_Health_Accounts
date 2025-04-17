@@ -1,0 +1,411 @@
+Title:    06b_sensitivity_analysis.Rmd
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : Sensitivity analysis for literature-based adjustment excluding data from 2016 to 2019
+     
+ Author: USERNAME
+ Date: 2025 01 22
+ 
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots #
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "ADDRESS", paste0("ADDRESS", Sys.info()['user'][1], "ADDRESS")))
+}
+
+# packages
+library(data.table)
+library(lme4)
+library(lmerTest)
+
+# file paths
+data_dir <- "FILEPATH"
+data_path <- paste0(data_dir, "FILEPATH")
+model_outputs_dir <- paste0(data_dir, "FILEPATH")
+pred_shell_all_ages_agg_path <- paste0(data_dir, "FILEPATH")
+fig_out_dir <- paste0(data_dir, "FILEPATH")
+
+# functions
+source("FILEPATH")
+source("FILEPATH")
+source("FILEPATH")
+
+# release id
+gbd_release_id <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = gbd_release_id
+)
+
+```
+
+Import data
+```{r}
+# model input data
+model_dt <- fread(data_path)
+
+# predicted dataset
+pred_shell_all_ages_agg_dt <- fread(pred_shell_all_ages_agg_path)
+pred_shell_all_ages_agg_dt[, age_group_class := "All Ages"]
+pred_shell_all_ages_agg_dt[, population_age_adj := "All Ages"]
+
+```
+
+Data info
+```{r}
+locs <- sort(unique(model_dt$location_id))
+years <- c(2000:2019)
+age_groups <- c(1, 6:20, 30, 160)
+sex <- c(1, 2)
+```
+
+Log transforming data
+```{r}
+# log transforming model input data
+model_dt[, `:=` (lg_bhi_per_inc_prev_val = log(bhi_per_inc_prev_val), 
+                 lg_lit_per_inc_prev_val = log(lit_per_inc_prev_val_new))]
+
+# GDP per capita
+model_dt[, lg_gdp_pc := log(gdp_pc)]
+
+# Domestic health spending per capita
+model_dt[, lg_dhe_pc := log(domestic_per_capita)]
+
+# Government health spending per capita
+model_dt[, lg_ghe_pc := log(ghes_per_capita)]
+
+# Pulling all age and all sex population estimates
+model_locs <- sort(unique(model_dt$location_id))
+model_pops <- get_population(location_id = model_locs, 
+                       year_id = years, 
+                       age_group_id = 22,
+                       sex_id = 3,
+                       release_id = gbd_release_id)
+
+# adding all age and all sex population to model dataset
+model_dt <- merge(model_dt, model_pops[, .(location_id,
+                                           year_id,
+                                           tote_pop = population)], by = c("location_id", "year_id"), all.x = T)
+
+```
+
+Log transforming prediction shell dataset covariates
+```{r}
+# set offset
+bhi_offset_val <- 1e-10
+
+# retaining pre-adjusted bhi values
+pred_shell_all_ages_agg_dt[, og_bhi_per_inc_prev_val := bhi_per_inc_prev_val]
+
+# adding offset
+pred_shell_all_ages_agg_dt[, bhi_per_inc_prev_val := (bhi_per_inc_prev_val + bhi_offset_val)]
+
+# log transforming bhi values
+pred_shell_all_ages_agg_dt[, `:=` (lg_bhi_per_inc_prev_val = log(bhi_per_inc_prev_val), 
+                                   lg_ghe_pc = log(ghes_per_capita))]
+```
+
+################################################################################
+TYPE OF CARE SPECIFIC MODELS
+################################################################################
+
+Storing universal model info
+```{r}
+set.seed(123)
+
+# set controls
+control_iter <- lmerControl(optimizer = "bobyqa",
+                            optCtrl = list(maxfun = 200000),
+                            check.conv.singular = .makeCC(action = "warning",
+                                                          tol = 1e-6))
+```
+
+Identifying outliered data points
+```{r}
+# Creating proportional difference column
+model_dt[, prop_diff := (lit_per_inc_prev_val_new / bhi_per_inc_prev_val)]
+
+# set threshold
+threshold <- 20
+
+# identifying outliered values
+model_dt[, outlier_id := ifelse((prop_diff < (1/threshold) | prop_diff > (threshold)), 1, 0)]
+
+```
+
+AM Model
+```{r}
+# Filtering for toc
+model_dt_AM <- model_dt[type_of_care == "raked_mean_AM" & outlier_id == 0]
+
+# Final model with regional intercepts
+mod_AM <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_AM)
+
+```
+
+Exclude data from 2016 to 2019
+```{r}
+model_dt_AM2 <- model_dt_AM[!year_id %in% c(2016:2019)]
+```
+
+AM Model #2 
+```{r}
+# ambulatory sensitivity model
+mod_AM2 <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_AM2)
+
+```
+
+AM Predicted Values 
+```{r}
+model_dt_AM_sa <- copy(model_dt_AM)
+
+# original model
+model_dt_AM_sa[, `:=` (pred_mod_am_vals = predict(mod_AM, newdata = model_dt_AM_sa, allow.new.levels = TRUE),
+                       pred_mod_am2_vals = predict(mod_AM2, newdata = model_dt_AM_sa, allow.new.levels = TRUE))]
+
+# exponentiate predicted values
+model_dt_AM_sa[, `:=` (pred_mod_am_vals = exp(pred_mod_am_vals),
+                       pred_mod_am2_vals = exp(pred_mod_am2_vals))]
+```
+
+################################################################################
+AM TABLE
+################################################################################
+```{r}
+AM_table <- model_dt_AM_sa[year_id %in% c(2016:2019), .(mae = mean(abs(lit_per_inc_prev_val_new - pred_mod_am_vals)),
+                                   mape = mean(abs(lit_per_inc_prev_val_new - pred_mod_am2_vals)),
+                                   mse = mean((lit_per_inc_prev_val_new - pred_mod_am_vals)^2),
+                                   mspe = mean((lit_per_inc_prev_val_new - pred_mod_am2_vals)^2)), by = .(year_id)]
+
+```
+
+
+IP
+```{r}
+# Filtering for toc
+model_dt_IP <- model_dt[type_of_care == "raked_mean_IP" & outlier_id == 0]
+
+# final model with regional intercepts
+mod_IP <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (1 | disorder_classification) + 
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_IP)
+
+```
+
+Exclude data from 2016 to 2019
+```{r}
+model_dt_IP2 <- model_dt_IP[!year_id %in% c(2016:2019)]
+```
+
+IP Model #2
+```{r}
+# inpatient sensitivity model
+mod_IP2 <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (1 | disorder_classification) + 
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_IP2)
+
+```
+
+IP Predicted Values 
+```{r}
+model_dt_IP_sa <- copy(model_dt_IP)
+
+# Creating predicted values
+model_dt_IP_sa[, pred_mod_IP_vals := predict(mod_IP, newdata = model_dt_IP_sa, allow.new.levels = TRUE)]
+model_dt_IP_sa[, pred_mod_IP2_vals := predict(mod_IP2, newdata = model_dt_IP_sa, allow.new.levels = TRUE)]
+
+# Exponentiate values
+model_dt_IP_sa[, `:=` (pred_mod_IP_vals = exp(pred_mod_IP_vals),
+                       pred_mod_IP2_vals = exp(pred_mod_IP2_vals))]
+```
+
+################################################################################
+IP TABLE
+################################################################################
+```{r}
+IP_table <- model_dt_IP_sa[year_id %in% c(2016:2019), .(mae = mean(abs(lit_per_inc_prev_val_new - pred_mod_IP_vals)),
+                                   mape = mean(abs(lit_per_inc_prev_val_new - pred_mod_IP2_vals)),
+                                   mse = mean((lit_per_inc_prev_val_new - pred_mod_IP_vals)^2),
+                                   mspe = mean((lit_per_inc_prev_val_new - pred_mod_IP2_vals)^2)), by = .(year_id)]
+```
+
+################################################################################
+RX TABLE
+################################################################################
+
+RX
+```{r}
+# Filtering for toc
+model_dt_RX <- model_dt[type_of_care == "raked_mean_RX" & outlier_id == 0]
+
+# final model with regional intercepts
+mod_RX <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_RX)
+
+```
+
+Exclude data from 2016 to 2019
+```{r}
+model_dt_RX2 <- model_dt_RX[!year_id %in% c(2016:2019)]
+```
+
+RX Model #2 
+```{r}
+# RX sensitivity model
+mod_RX2 <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_RX2)
+
+```
+
+RX Predicted Values 
+```{r}
+model_dt_RX_sa <- copy(model_dt_RX)
+
+# Creating predicted values
+model_dt_RX_sa[, pred_mod_RX_vals := predict(mod_RX, newdata = model_dt_RX_sa, allow.new.levels = TRUE)]
+model_dt_RX_sa[, pred_mod_RX2_vals := predict(mod_RX2, newdata = model_dt_RX_sa, allow.new.levels = TRUE)]
+
+# Exponentiate values
+model_dt_RX_sa[, `:=` (pred_mod_RX_vals = exp(pred_mod_RX_vals),
+                       pred_mod_RX2_vals = exp(pred_mod_RX2_vals))]
+
+```
+
+################################################################################
+RX TABLE
+################################################################################
+```{r}
+RX_table <- model_dt_RX_sa[year_id %in% c(2016:2019), .(mae = mean(abs(lit_per_inc_prev_val_new - pred_mod_RX_vals)),
+                                   mape = mean(abs(lit_per_inc_prev_val_new - pred_mod_RX2_vals)),
+                                   mse = mean((lit_per_inc_prev_val_new - pred_mod_RX_vals)^2),
+                                   mspe = mean((lit_per_inc_prev_val_new - pred_mod_RX2_vals)^2)), by = .(year_id)]
+```
+
+
+################################################################################
+
+ED + HH + NF
+```{r}
+# Filtering for specific tocs
+model_dt_ED_HH_NF <- model_dt[type_of_care %in% c("raked_mean_ED", 
+                                                  "raked_mean_HH",
+                                                  "raked_mean_NF") & outlier_id == 0]
+
+# final model with regional and cause-specific intercepts
+mod_ED_HH_NF <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | location_name:type_of_care) +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_ED_HH_NF)
+
+```
+
+Exclude data from 2016 to 2019
+```{r}
+model_dt_ED_HH_NF2 <- model_dt_ED_HH_NF[!year_id %in% c(2016:2019)]
+```
+
+ED + HH + NF Model #2
+```{r}
+# group sensitivity model
+mod_ED_HH_NF2 <- lmer(lg_lit_per_inc_prev_val ~ -1 + lg_bhi_per_inc_prev_val +
+                        (0 + lg_bhi_per_inc_prev_val | location_name:type_of_care) +
+                        (0 + lg_bhi_per_inc_prev_val | super_region_name/region_name:cause_name) +
+                        (1 + lg_bhi_per_inc_prev_val | location_name:cause_name),
+    	                  REML = FALSE,
+    	                  control = control_iter,
+    	                  data = model_dt_ED_HH_NF2)
+
+```
+
+Group model predicted values 
+```{r}
+model_dt_ED_HH_NF_sa <- copy(model_dt_ED_HH_NF)
+
+# Creating predicted values
+model_dt_ED_HH_NF_sa[, pred_mod_ED_HH_NF_vals := predict(mod_ED_HH_NF, newdata = model_dt_ED_HH_NF_sa, allow.new.levels = TRUE)]
+model_dt_ED_HH_NF_sa[, pred_mod_ED_HH_NF2_vals := predict(mod_ED_HH_NF2, newdata = model_dt_ED_HH_NF_sa, allow.new.levels = TRUE)]
+
+# Exponentiate values
+model_dt_ED_HH_NF_sa[, `:=`(pred_mod_ED_HH_NF_vals = exp(pred_mod_ED_HH_NF_vals),
+                       pred_mod_ED_HH_NF2_vals = exp(pred_mod_ED_HH_NF2_vals))]
+```
+
+################################################################################
+ED HH NF Table
+################################################################################
+```{r}
+ED_HH_NF_table <- model_dt_ED_HH_NF_sa[year_id %in% c(2016:2019), .(mae = mean(abs(lit_per_inc_prev_val_new - pred_mod_ED_HH_NF_vals)),
+                                   mape = mean(abs(lit_per_inc_prev_val_new - pred_mod_ED_HH_NF2_vals)),
+                                   mse = mean((lit_per_inc_prev_val_new - pred_mod_ED_HH_NF_vals)^2),
+                                   mspe = mean((lit_per_inc_prev_val_new - pred_mod_ED_HH_NF2_vals)^2)), by = .(year_id)]
+```
+
+Creating MAE consolidated table
+```{r}
+AM_table[, Model := "Ambulatory"]
+IP_table[, Model := "Inpatient"]
+RX_table[, Model := "Pharmaceuticals"]
+ED_HH_NF_table[, Model := "Combine model (ED, HH, NF)"]
+
+# append tables
+sensitivity_analysis_table <- rbindlist(list(AM_table, IP_table, RX_table, ED_HH_NF_table))
+
+# reorder table columns
+sensitivity_analysis_table <- sensitivity_analysis_table[, .(Model, 
+                         year_id,
+                         mae,
+                         mape,
+                         mse,
+                         mspe)]
+
+# renaming measure columns
+setnames(sensitivity_analysis_table, c("mae", "mape", "mse", "mspe", "year_id"), 
+         c("MAE Full Model", "MAPE OOS", "MSE Full Model", "MSPE OOS", "Year"))
+
+sensitivity_analysis_table <- sensitivity_analysis_table[order(Year, Model)]
+
+# round values in mean sensitivity analysis table
+sensitivity_analysis_table[, `:=` (`MAE Full Model` = round(`MAE Full Model`, 0),
+                 `MAPE OOS` = round(`MAPE OOS`, 0),
+                 `MSE Full Model` = round(`MSE Full Model`, 0),
+                 `MSPE OOS` = round(`MSPE OOS`, 0))]
+```
+
+Saving out MAE table and excluded data
+```{r}
+fwrite(sensitivity_analysis_table, "FILEPATH")
+
+```

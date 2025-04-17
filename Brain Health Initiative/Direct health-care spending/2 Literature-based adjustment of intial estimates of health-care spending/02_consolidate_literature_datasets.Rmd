@@ -1,0 +1,130 @@
+ Title:    02_consolidate_literature_datasets.Rmd
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : To consolidate all the reallocated values datasets for the literature review
+           
+ Author: USERNAME
+ Date: 2025 03 07
+
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots #
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "USERNAME", paste0("USERNAME", Sys.info()['user'][1], "USERNAME")))
+}
+
+# packages
+library(data.table)
+library(ggplot2)
+
+# file paths
+data_dir <- "FILEPATH"
+data_output_dir <- paste0(data_dir, "FILEPATH")
+figure_output_dir <- "FILEPATH"
+
+adhd_path <- paste0(data_dir, "FILEPATH")
+alzheimers_path <- paste0(data_dir, "FILEPATH")
+anxiety_path <- paste0(data_dir, "FILEPATH")
+autism_path <- paste0(data_dir, "FILEPATH")
+bipolar_path <- paste0(data_dir, "FILEPATH")
+brain_cancer_path <- paste0(data_dir, "FILEPATH")
+depression_path <- paste0(data_dir, "FILEPATH")
+eating_path <- paste0(data_dir, "FILEPATH")
+epilepsy_path <- paste0(data_dir, "FILEPATH")
+headache_disorders_path <- paste0(data_dir, "FILEPATH")
+meningitis_path <- paste0(data_dir, "FILEPATH")
+ms_path <- paste0(data_dir, "FILEPATH")
+parkinsons_path <- paste0(data_dir, "FILEPATH")
+schizophrenia_path <- paste0(data_dir, "FILEPATH")
+stroke_path <- paste0(data_dir, "FILEPATH")
+
+# functions
+source("FILEPATH")
+source(file.path("FILEPATH"))
+source(paste0(code_repo, 'FILEPATH'))
+
+```
+
+location and date info
+```{r}
+# save date
+date <- gsub('-', '_', Sys.Date())
+
+gbd_release_id <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = gbd_release_id
+)
+
+```
+
+Columns to keep from all datasets
+```{r}
+# columns to keep 
+keep_cols <- c("cause_name", "cause_id", "title", "location_name", 
+               "location_id", "year_id", "sex_id", "type_of_care", "population_age", 
+               "spending_type", "aggregation_level", "bhi_component", "mult_factor", "sample_size", 
+               "value", "value_final", "lit_inc_prev_val", "lit_per_inc_prev_val", "bhi_value", 
+               "bhi_inc_prev_val", "bhi_per_inc_prev_val", "unit", "sampling_period", "base_year", 
+               "currency")
+
+```
+
+Reading in datasets with desired columns
+```{r}
+# read in datasets
+adhd_dt <- fread(adhd_path)[, ..keep_cols]
+alzheimers_dt <- fread(alzheimers_path)[, ..keep_cols]
+anxiety_dt <- fread(anxiety_path)[, ..keep_cols]
+autism_dt <- fread(autism_path)[, ..keep_cols]
+bipolar_dt <- fread(bipolar_path)[, ..keep_cols]
+brain_cancer_dt <- fread(brain_cancer_path)[, ..keep_cols]
+depression_dt <- fread(depression_path)[, ..keep_cols]
+eating_dt <- fread(eating_path)[, ..keep_cols]
+epilepsy_dt <- fread(epilepsy_path)[, ..keep_cols]
+headache_disorders_dt <- fread(headache_disorders_path)[, ..keep_cols]
+meningitis_dt <- fread(meningitis_path)[, ..keep_cols]
+ms_dt <- fread(ms_path)[, ..keep_cols]
+parkinsons_dt <- fread(parkinsons_path)[, ..keep_cols]
+schizophrenia_dt <- fread(schizophrenia_path)[, ..keep_cols]
+stroke_dt <- fread(stroke_path)[, ..keep_cols]
+
+# bind list
+dt <- rbindlist(list(adhd_dt, anxiety_dt, autism_dt, alzheimers_dt, bipolar_dt, 
+                     brain_cancer_dt, depression_dt, eating_dt, epilepsy_dt, headache_disorders_dt, 
+                     meningitis_dt, ms_dt, parkinsons_dt, schizophrenia_dt, stroke_dt))
+
+```
+
+Currency conversion
+```{r}
+# adding ihme loc id
+dt <- merge(dt, hierarchy[, .(location_id, ihme_loc_id)], by = "location_id", all.x = T)
+
+# updating currency column
+dt[, currency_col := ifelse(grepl('Euro', currency, ignore.case = T), 'EUR',
+                                     ifelse(grepl("EUR", currency), 'EUR',
+                                          ifelse(grepl("US", currency), 'USD',
+                                                  ifelse(grepl('USD', currency, ignore.case = T), 'USD', 'LCU'))))]
+
+## currency conversion
+dt <- currency_conversion(dt,
+                          col.loc = 'ihme_loc_id',
+                          col.value = 'lit_per_inc_prev_val',
+                          col.currency = 'currency_col',
+                          col.currency.year = 'base_year',
+                          base.unit = 'USD',
+                          base.year = 2021,
+                          converter.version = 7,
+                          simplify = F)
+
+```
+
+Saving out the final dataset
+```{r}
+fwrite(dt, paste0(data_output_dir, "FILEPATH"))
+```

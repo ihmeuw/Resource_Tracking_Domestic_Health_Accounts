@@ -1,0 +1,686 @@
+ Title:    01_format_extracted_literature_data.Rmd
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : To align IHME age groups to literature data age groups
+           
+ Author: USERNAME
+ Date: 2024 06 03
+
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots #
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "ADDRESS", paste0("ADDRESS", Sys.info()['user'][1], "ADDRESS")))
+}
+
+# packages
+library(data.table)
+library(ggplot2)
+library(tidyverse)
+
+# file paths
+file_dir <- 'FILEPATH'
+data_output_dir <- paste0(file_dir, "FILEPATH")
+condition_dt_path <- paste0(file_dir, "FILEPATH")
+age_group_id_path <- paste0(file_dir, "FILEPATH")
+toc_renaming_table_path <- paste0(file_dir, "FILEPATH")
+direct_spending_path <- paste0(file_dir, "FILEPATH")
+
+# functions
+source("FILEPATH")
+source(file.path("FILEPATH"))
+source(paste0(code_repo, 'FILEPATH'))
+
+```
+
+Hierarchy and data info
+```{r}
+release_num <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = release_num
+)
+
+# storing country level location ids
+lvl3_locs <- hierarchy[level == 3]$location_id
+
+# storing condition name 
+condition_name <- "Stroke"
+
+# printing condition name
+print(condition_name)
+
+```
+
+Load data
+```{r}
+# condition data
+condition_dt <- fread(condition_dt_path)
+unique(condition_dt$cause_name)
+
+# making sure value column = continuous/numeric
+condition_dt[, value := as.numeric(value)]
+
+# removing empty rows
+condition_dt <- condition_dt[!location_name == ""]
+
+# adding spending type column
+condition_dt[, spending_type := `health_function/spending category`]
+
+# formatting gbd sex id
+condition_dt[, gbd_sex_id := as.integer(gbd_sex_id)]
+
+# age group id table
+age_group_id_table <- fread(age_group_id_path)
+
+# direct spending data
+direct_spending_dt <- fread(direct_spending_path)
+
+# toc renaming table
+toc_renaming_table <- fread(toc_renaming_table_path)
+
+```
+
+Convert direct spending dt from wide to long
+```{r}
+direct_spending_dt <- melt(direct_spending_dt, id.vars = c("location_id",
+                                                   "location_name",
+                                                   "year_id",
+                                                   "age_group_id",
+                                                   "age_group_name",
+                                                   "sex_id",
+                                                   "cause_id",
+                                                   "cause_name",
+                                                   "incident_prevalent_cases"), variable.name = "new_spending_type", value.name = "bhi_value",
+                   measure.vars = c("AM", "ED", "HH", "IP", "NF", "RX"))
+
+# adding figure spending type column
+direct_spending_dt[, type_of_care := ifelse(new_spending_type == "AM", "raked_mean_AM",
+                                                   ifelse(new_spending_type == "ED", "raked_mean_ED",
+                                                          ifelse(new_spending_type == "HH", "raked_mean_HH",
+                                                                 ifelse(new_spending_type == "IP", "raked_mean_IP",
+                                                                        ifelse(new_spending_type == "NF", "raked_mean_NF",
+                                                                               ifelse(new_spending_type == "RX", "raked_mean_RX", NA))))))]
+
+# removing new spending type column
+direct_spending_dt[, new_spending_type := NULL]
+```
+
+Data cleaning
+```{r}
+# data info
+# age groups
+condition_age_groups <- sort(unique(condition_dt$population_age))
+print(condition_age_groups)
+
+# locations
+condition_locs <- sort(unique(condition_dt$location_name))
+print(condition_locs)
+
+# renaming location names to match hierarchy
+condition_dt[location_name == "United States", location_name := hierarchy[location_id == 102]$location_name]
+condition_dt[location_name == "USA", location_name := hierarchy[location_id == 102]$location_name]
+condition_dt[location_name == "Czech Republic", location_name := hierarchy[location_id == 47]$location_name]
+condition_dt[location_name == "Russia", location_name := hierarchy[location_id == 62]$location_name]
+condition_dt[location_name == "Sao Paolo", location_name := hierarchy[location_id == 4775]$location_name]
+condition_dt[location_name == "Taiwan", location_name := hierarchy[location_id == 8]$location_name]
+condition_dt[location_name == "Turkey", location_name := hierarchy[location_id == 155]$location_name]
+condition_dt[location_name == "South Korea", hierarchy[location_id == 68]$location_name]
+condition_dt[location_name == "United Kindgom", hierarchy[location_id == 95]$location_name]
+
+# removing non-country-specific rows
+condition_dt <- condition_dt[!location_name == "Europe"]
+
+# updating population ages
+condition_dt[population_age == "0 to under 2", population_age := "<2"]
+condition_dt[population_age == "0 to 14", population_age := "0-14"]
+condition_dt[population_age == "0 to 19", population_age := "0-19"]
+condition_dt[population_age == "3 months to 4 years", population_age := "0-4"]
+condition_dt[population_age == "91 days to 14 years", population_age := "0-14"]
+condition_dt[population_age == "0 to 44", population_age := "0-44"]
+condition_dt[population_age == "2 to under 5", population_age := "2-4"]
+condition_dt[population_age == "2 to 30", population_age := "2-30"]
+condition_dt[population_age == "3 to 17", population_age := "3-17"]
+condition_dt[population_age == "5 to 9", population_age := "5-9"]
+condition_dt[population_age == "5 to 11", population_age := "5-11"]
+condition_dt[population_age == "5 to 14", population_age := "5-14"]
+condition_dt[population_age == "5 to 17", population_age := "5-17"]
+condition_dt[population_age == "5 to 91", population_age := "5-91"]
+condition_dt[population_age == "6 to 18", population_age := "6-18"]
+condition_dt[population_age == "7 to 18", population_age := "7-18"]
+condition_dt[population_age == "8 to 17", population_age := "8-17"]
+condition_dt[population_age == "10 to 14", population_age := "10-14"]
+condition_dt[population_age == "11 to 14", population_age := "11-14"]
+condition_dt[population_age == "11 to 17", population_age := "11-17"]
+condition_dt[population_age == "11 to 18", population_age := "11-18"]
+condition_dt[population_age == "12 to 17", population_age := "12-17"]
+condition_dt[population_age == "12 to 18", population_age := "12-18"]
+condition_dt[population_age == "15 to 17", population_age := "15-17"]
+condition_dt[population_age == "15 years to 19 years", population_age := "15-19"]
+condition_dt[population_age == "15 to 20", population_age := "15-20"]
+condition_dt[population_age == "16 to 64", population_age := "16-64"]
+condition_dt[population_age == "16 to 75", population_age := "16-75"]
+condition_dt[population_age == "16 to 85", population_age := "16-85"]
+condition_dt[population_age == "18 to 34", population_age := "18-34"]
+condition_dt[population_age == "18 to 54", population_age := "18-54"]
+condition_dt[population_age == "18 to 60", population_age := "18-60"]
+condition_dt[population_age == "18 to 64", population_age := "18-64"]
+condition_dt[population_age == "18 to 65", population_age := "18-65"]
+condition_dt[population_age == "18 to 70", population_age := "18-70"]
+condition_dt[population_age == "18 to 75", population_age := "18-75"]
+condition_dt[population_age == "19 to 65", population_age := "19-65"]
+condition_dt[population_age == "20 to 29", population_age := "20-29"]
+condition_dt[population_age == "20 to 68", population_age := "20-68"]
+condition_dt[population_age == "30 to 39", population_age := "30-39"]
+condition_dt[population_age == "31 to 80", population_age := "31-80"]
+condition_dt[population_age == "35 to 49", population_age := "35-49"]
+condition_dt[population_age == "40 to 49", population_age := "40-49"]
+condition_dt[population_age == "41 to 64", population_age := "41-64"]
+condition_dt[population_age == "45 to 64", population_age := "45-64"]
+condition_dt[population_age == "50 to 59", population_age := "50-59"]
+condition_dt[population_age == "50 to 64", population_age := "50-64"]
+condition_dt[population_age == "60 to 69", population_age := "60-69"]
+condition_dt[population_age == "65 to 79", population_age := "65-79"]
+condition_dt[population_age == "65 to 74", population_age := "65-74"]
+condition_dt[population_age == "65 to 75", population_age := "65-75"]
+condition_dt[population_age == "70 to 79", population_age := "70-79"]
+condition_dt[population_age == "74 to 88", population_age := "74-88"]
+condition_dt[population_age == "75 to 84", population_age := "75-84"]
+condition_dt[population_age == "79 to 96", population_age := "79-96"]
+condition_dt[population_age == "under 18", population_age := "<=17"]
+condition_dt[population_age == "65 plus", population_age := "65+"]
+condition_dt[population_age == "all", population_age := "all ages"]
+
+```
+
+Converting all literature values to annual values
+```{r}
+
+# proportion of year for each sampling period
+condition_dt[sampling_period == "1 day", proportion_of_year := (1/365)]
+condition_dt[sampling_period == "day", proportion_of_year := (1/365)]
+condition_dt[sampling_period == "week", proportion_of_year := (1/52)]
+condition_dt[sampling_period == "15 days", proportion_of_year := (3/73)]
+condition_dt[sampling_period == "1.5 months (6 weeks)", proportion_of_year := (6/52)]
+condition_dt[sampling_period == "1 month", proportion_of_year := (1/12)]
+condition_dt[sampling_period == "month", proportion_of_year := (1/12)]
+condition_dt[sampling_period == "3 months", proportion_of_year := (3/12)]
+condition_dt[sampling_period == "6 months", proportion_of_year := (6/12)]
+condition_dt[sampling_period == "9 months", proportion_of_year := (9/12)]
+condition_dt[sampling_period == "10 months", proportion_of_year := (10/12)]
+condition_dt[sampling_period == "12 months", proportion_of_year := (12/12)]
+condition_dt[sampling_period == "year", proportion_of_year := (12/12)]
+condition_dt[sampling_period == "1 year", proportion_of_year := (12/12)]
+condition_dt[sampling_period == "18 months", proportion_of_year := (18/12)]
+condition_dt[sampling_period == "24 months", proportion_of_year := (24/12)]
+condition_dt[sampling_period == "36 months", proportion_of_year := (36/12)]
+condition_dt[sampling_period == "48 months", proportion_of_year := (48/12)]
+condition_dt[sampling_period == "5 years", proportion_of_year := (60/12)]
+
+# calculate annual value based on proportion of year
+condition_dt[, annual_value := value / proportion_of_year]
+
+```
+
+Consolidating spending types and renaming data year to year id
+```{r}
+condition_dt <- merge(condition_dt, toc_renaming_table, by = "spending_type", all.x = TRUE)
+setnames(condition_dt, old = "data_year", new = "year_id")
+
+```
+
+Only retaining direct spending types of care
+```{r}
+ds_toc <- c("raked_mean_AM",
+            "raked_mean_ED",
+            "raked_mean_HH",
+            "raked_mean_IP",
+            "raked_mean_NF",
+            "raked_mean_RX")
+
+condition_dt <- condition_dt[type_of_care %in% ds_toc & location_id %in% lvl3_locs & year_id %in% c(2000:2019)]
+
+```
+
+Aligning cause names between datasets
+```{r}
+# updating cause name in data to match direct spending pre-adjusted data
+cause_table <- unique(direct_spending_dt[, .(cause_id, cause_name)])
+condition_dt[, cause_name := NULL]
+condition_dt <- merge(condition_dt, cause_table, by = "cause_id", all.x = T)
+
+```
+
+Storing population age group ids
+```{r}
+# all age groups
+gbd_age_0_4 <- c(1)
+gbd_age_0_14 <- c(1, 6:7)
+gbd_age_0_44 <- c(1, 6:13)
+gbd_age_2_4 <- c(1)
+gbd_age_2_30 <- c(1, 6:11)
+gbd_age_3_17 <- c(1, 6:8) 
+gbd_age_5_9 <- c(6)
+gbd_age_5_11 <- c(6:7)
+gbd_age_5_14 <- c(6:7)
+gbd_age_5_17 <- c(6:8)
+gbd_age_5_91 <- c(6:20, 30, 160)
+gbd_age_6_18 <- c(6:8)
+gbd_age_7_18 <- c(6:8)
+gbd_age_8_17 <- c(6:8)
+gbd_age_10_14 <- c(7)
+gbd_age_11_14 <- c(7)
+gbd_age_11_17 <- c(7:8)
+gbd_age_11_18 <- c(7:8)
+gbd_age_12_17 <- c(7:8)
+gbd_age_12_18 <- c(7:8)
+gbd_age_15_17 <- c(8)
+gbd_age_15_18 <- c(8)
+gbd_age_15_19 <- c(8)
+gbd_age_15_20 <- c(8:9)
+gbd_age_15_60 <- c(8:16)
+gbd_age_15_64 <- c(8:17)
+gbd_age_16_48 <- c(8:14)
+gbd_age_16_64 <- c(8:17)
+gbd_age_16_74 <- c(8:19)
+gbd_age_16_75 <- c(8:20)
+gbd_age_16_85 <- c(8:20, 30, 160)
+gbd_age_18_30 <- c(8:10)
+gbd_age_18_34 <- c(8:11)
+gbd_age_18_54 <- c(8:15)
+gbd_age_18_60 <- c(8:17)
+gbd_age_18_64 <- c(8:17)
+gbd_age_18_65 <- c(8:18)
+gbd_age_18_70 <- c(8:19)
+gbd_age_18_75 <- c(8:20)
+gbd_age_18_80 <- c(8:20)
+gbd_age_19_65 <- c(8:18)
+gbd_age_19_78 <- c(8:20)
+gbd_age_19_85 <- c(8:20, 30, 160)
+gbd_age_20_60 <- c(9:17)
+gbd_age_20_64 <- c(9:17)
+gbd_age_20_68 <- c(9:18)
+gbd_age_24_76 <- c(9:20)
+gbd_age_24_77 <- c(9:20)
+gbd_age_35_49 <- c(12:14)
+gbd_age_45_64 <- c(14:17)
+gbd_age_50_64 <- c(15:17)
+gbd_age_65_74 <- c(18:19)
+gbd_age_65_75 <- c(18:20)
+gbd_age_65_79 <- c(18:20)
+gbd_age_74_88 <- c(19:20, 30, 160)
+gbd_age_75_84 <- c(20, 30)
+gbd_age_79_96 <- c(20, 30, 160)
+gbd_age_85_100 <- c(160)
+
+# plus
+gbd_age_5_plus <- c(6:20, 30, 160)
+gbd_age_15_plus <- c(8:20, 30, 160)
+gbd_age_17_plus <- c(8:20, 30, 160)
+gbd_age_18_plus <- c(8:20, 30, 160)
+gbd_age_19_plus <- c(8:20, 30, 160)
+gbd_age_20_plus <- c(9:20, 30, 160)
+gbd_age_25_plus <- c(10:20, 30, 160)
+gbd_age_30_plus <- c(11:20, 30, 160)
+gbd_age_35_plus <- c(12:20, 30, 160)
+gbd_age_40_plus <- c(13:20, 30, 160)
+gbd_age_45_plus <- c(14:20, 30, 160)
+gbd_age_50_plus <- c(15:20, 30, 160)
+gbd_age_55_plus <- c(16:20, 30, 160)
+gbd_age_60_plus <- c(17:20, 30, 160)
+gbd_age_65_plus <- c(18:20, 30, 160)
+gbd_age_70_plus <- c(19:20, 30, 160)
+gbd_age_75_plus <- c(20, 30, 160)
+gbd_age_80_plus <- c(30, 160)
+gbd_age_85_plus <- c(160)
+
+# age and under
+gbd_age_17_and_under <- c(1, 6:8)
+gbd_age_18_and_under <- c(1, 6:8)
+
+# under
+gbd_age_under_1 <- c(1)
+gbd_age_under_2 <- c(1) 
+gbd_age_under_5 <- c(1)
+gbd_age_under_18 <- c(1, 6:8)
+gbd_age_under_50 <- c(1, 6:14)
+gbd_age_under_65 <- c(1, 6:17)
+
+# over 60
+gbd_age_over_60 <- c(17:20, 30, 160)
+
+# all ages
+gbd_age_all_ages <- c(1, 6:20, 30, 160)
+
+```
+
+Aggregating BHI direct spending data to match lit population age groups
+```{r}
+# storing titles
+titles <- sort(unique(condition_dt$title))
+
+# bhi cause id 
+bhi_cause_id <- unique(condition_dt$cause_id)
+print(bhi_cause_id)
+
+# creating empty list to store data
+my_list <- list()
+
+# titles for loop
+for (t in titles) {
+  
+  temp_title <- condition_dt[title == t]
+  
+  
+  locs <- sort(unique(temp_title$location_name))
+  
+  # location for loop
+  for (loc in locs){
+    
+    temp_loc <- temp_title[location_name == loc]  
+    years <- sort(unique(temp_loc$year_id))
+    
+    # year for loop
+    for (year in years){
+      
+      temp_year <- temp_loc[year_id == year]
+      temp_age_group_ids <- sort(unique(temp_year$population_age))
+      
+      # age group ids for loop
+      for (age in temp_age_group_ids) {
+        
+        temp_ages <- temp_year[population_age == age]
+        gbd_sex_ids <- sort(unique(temp_ages$gbd_sex_id))
+        
+        # sex for loop
+        for (sex in gbd_sex_ids){
+          
+          # updating sex
+          sex_val <- sex
+          temp_gbd_sex <- temp_ages[gbd_sex_id == sex_val]
+          temp_spending_types <- sort(unique(temp_gbd_sex$type_of_care))
+          
+          # filtering for each age group
+            temp_age_group_id_dt <- copy(temp_gbd_sex)
+            
+            # start of age group id for loop
+            if(age == "<2"){
+              temp_age_group_id_vals <- gbd_age_under_2
+            } else if(age == "0-4"){
+              temp_age_group_id_vals <- gbd_age_0_4
+            } else if(age == "0-14"){
+              temp_age_group_id_vals <- gbd_age_0_14
+            } else if(age == "0-44"){
+              temp_age_group_id_vals <- gbd_age_0_44
+            } else if(age == "2-4"){
+              temp_age_group_id_vals <- gbd_age_2_4
+            } else if(age == "2-30"){
+              temp_age_group_id_vals <- gbd_age_2_30
+            } else if(age == "3-17"){
+              temp_age_group_id_vals <- gbd_age_3_17
+            } else if(age == "5-9"){
+              temp_age_group_id_vals <- gbd_age_5_9
+            } else if(age == "5-11"){
+              temp_age_group_id_vals <- gbd_age_5_11
+            } else if(age == "5-14"){
+              temp_age_group_id_vals <- gbd_age_5_14
+            } else if(age == "5-17"){
+              temp_age_group_id_vals <- gbd_age_5_17
+            } else if(age == "5-91"){
+              temp_age_group_id_vals <- gbd_age_5_91
+            } else if(age == "6-18"){
+              temp_age_group_id_vals <- gbd_age_6_18
+            } else if(age == "7-18"){
+              temp_age_group_id_vals <- gbd_age_7_18
+            } else if(age == "8-17"){
+              temp_age_group_id_vals <- gbd_age_8_17
+            } else if(age == "10-14"){
+              temp_age_group_id_vals <- gbd_age_10_14
+            } else if(age == "11-14"){
+              temp_age_group_id_vals <- gbd_age_11_14
+            } else if(age == "11-17"){
+              temp_age_group_id_vals <- gbd_age_11_17
+            } else if(age == "11-18"){
+              temp_age_group_id_vals <- gbd_age_11_18
+            } else if(age == "12-17"){
+              temp_age_group_id_vals <- gbd_age_12_17
+            } else if(age == "12-18"){
+              temp_age_group_id_vals <- gbd_age_12_18
+            } else if(age == "15-17"){
+              temp_age_group_id_vals <- gbd_age_15_17
+            } else if(age == "15-18"){
+              temp_age_group_id_vals <- gbd_age_15_18
+            } else if(age == "15-19"){
+              temp_age_group_id_vals <- gbd_age_15_19
+            } else if(age == "15-20"){
+              temp_age_group_id_vals <- gbd_age_15_20
+            } else if(age == "15-60"){
+              temp_age_group_id_vals <- gbd_age_15_60
+            } else if(age == "15-64"){
+              temp_age_group_id_vals <- gbd_age_15_64
+            } else if(age == "16-48"){
+              temp_age_group_id_vals <- gbd_age_16_48
+            } else if(age == "16-64"){
+              temp_age_group_id_vals <- gbd_age_16_64
+            } else if(age == "16-74"){
+              temp_age_group_id_vals <- gbd_age_16_74
+            } else if(age == "16-75"){
+              temp_age_group_id_vals <- gbd_age_16_75
+            } else if(age == "16-85"){
+              temp_age_group_id_vals <- gbd_age_16_85
+            } else if(age == "18-30"){
+              temp_age_group_id_vals <- gbd_age_18_30
+            } else if(age == "18-34"){
+              temp_age_group_id_vals <- gbd_age_18_34
+            } else if(age == "18-54"){
+              temp_age_group_id_vals <- gbd_age_18_54
+            } else if(age == "18-60"){
+              temp_age_group_id_vals <- gbd_age_18_60
+            } else if(age == "18-64"){
+              temp_age_group_id_vals <- gbd_age_18_64
+            } else if(age == "18-65"){
+              temp_age_group_id_vals <- gbd_age_18_65
+            } else if(age == "18-70"){
+              temp_age_group_id_vals <- gbd_age_18_70
+            } else if(age == "18-75"){
+              temp_age_group_id_vals <- gbd_age_18_75
+            } else if(age == "18-80"){
+              temp_age_group_id_vals <- gbd_age_18_80
+            } else if(age == "19-65"){
+              temp_age_group_id_vals <- gbd_age_19_65
+            } else if(age == "19-78"){
+              temp_age_group_id_vals <- gbd_age_19_78
+            } else if (age == "19-85"){
+              temp_age_group_id_vals <- gbd_age_19_85
+            } else if (age == "20-60"){
+              temp_age_group_id_vals <- gbd_age_20_60
+            } else if (age == "20-64"){
+              temp_age_group_id_vals <- gbd_age_20_64
+            } else if (age == "20-68"){
+              temp_age_group_id_vals <- gbd_age_20_68
+            } else if (age == "24-76"){
+              temp_age_group_id_vals <- gbd_age_24_76
+            } else if (age == "24-77"){
+              temp_age_group_id_vals <- gbd_age_24_77
+            } else if (age == "35-49"){
+              temp_age_group_id_vals <- gbd_age_35_49
+            } else if (age == "45-64"){
+              temp_age_group_id_vals <- gbd_age_45_64
+            } else if (age == "50-64"){
+              temp_age_group_id_vals <- gbd_age_50_64
+            } else if (age == "65-74"){
+              temp_age_group_id_vals <- gbd_age_65_74
+            } else if (age == "65-75"){
+              temp_age_group_id_vals <- gbd_age_65_75
+            } else if (age == "65-79"){
+              temp_age_group_id_vals <- gbd_age_65_79
+            } else if (age == "74-88"){
+              temp_age_group_id_vals <- gbd_age_74_88
+            } else if (age == "75-84"){
+              temp_age_group_id_vals <- gbd_age_75_84
+            } else if (age == "79-96"){
+              temp_age_group_id_vals <- gbd_age_79_96
+            } else if (age == "85-100"){
+              temp_age_group_id_vals <- gbd_age_85_100
+            } else if (age == "5+"){
+              temp_age_group_id_vals <- gbd_age_5_plus
+            } else if (age == "15+"){
+              temp_age_group_id_vals <- gbd_age_15_plus
+            } else if (age == "17+"){
+              temp_age_group_id_vals <- gbd_age_17_plus
+            } else if (age == "18+"){
+              temp_age_group_id_vals <- gbd_age_18_plus
+            } else if (age == "19+"){
+              temp_age_group_id_vals <- gbd_age_19_plus
+            } else if (age == ">18"){
+              temp_age_group_id_vals <- gbd_age_19_plus
+            } else if (age == "20+"){
+              temp_age_group_id_vals <- gbd_age_20_plus
+            } else if (age == "25+"){
+              temp_age_group_id_vals <- gbd_age_25_plus
+            } else if (age == "30+"){
+              temp_age_group_id_vals <- gbd_age_30_plus
+            } else if (age == "35+"){
+              temp_age_group_id_vals <- gbd_age_35_plus
+            } else if (age == "40+"){
+              temp_age_group_id_vals <- gbd_age_40_plus
+            } else if (age == "45+"){
+              temp_age_group_id_vals <- gbd_age_45_plus
+            } else if (age == "50+"){
+              temp_age_group_id_vals <- gbd_age_50_plus
+            } else if (age == "55+"){
+              temp_age_group_id_vals <- gbd_age_55_plus
+            } else if (age == "60+"){
+              temp_age_group_id_vals <- gbd_age_60_plus
+            } else if (age == "65+"){
+              temp_age_group_id_vals <- gbd_age_65_plus
+            } else if (age == "70+"){
+              temp_age_group_id_vals <- gbd_age_70_plus
+            } else if (age == "75+"){
+              temp_age_group_id_vals <- gbd_age_75_plus
+            } else if (age == "80+"){
+              temp_age_group_id_vals <- gbd_age_80_plus
+            } else if (age == "85+"){
+              temp_age_group_id_vals <- gbd_age_85_plus
+            } else if (age == "<=17"){
+              temp_age_group_id_vals <- gbd_age_17_and_under
+            } else if (age == "<=18"){
+              temp_age_group_id_vals <- gbd_age_18_and_under
+            } else if (age == "under 1"){
+              temp_age_group_id_vals <- gbd_age_under_1
+            } else if (age == "under 5"){
+              temp_age_group_id_vals <- gbd_age_under_5
+            } else if (age == "under 50"){
+              temp_age_group_id_vals <- gbd_age_under_50
+            } else if (age == "under 65"){
+              temp_age_group_id_vals <- gbd_age_under_65
+            } else if (age == "over 60"){
+              temp_age_group_id_vals <- gbd_age_over_60
+            } else if (age == "all ages"){
+              temp_age_group_id_vals <- gbd_age_all_ages
+            } else {
+              temp_age_group_id_vals <- is.numeric(NA)
+            }
+             temp_loc_id <- unique(temp_age_group_id_dt$location_id)
+             
+             # storing sex ids in environment
+             if(sex_val == 3){
+               temp_sex_id <- c(1, 2)
+             } else if (sex_val == 1){ 
+               temp_sex_id <- 1
+             } else{
+               temp_sex_id <- 2
+             }
+             
+             # creating temp dataset
+              temp_bhi_ds_dt <- direct_spending_dt[location_id %in% temp_loc_id & year_id %in% year & age_group_id %in% temp_age_group_id_vals & sex_id %in% temp_sex_id & cause_id %in% bhi_cause_id & type_of_care %in% temp_spending_types]
+              
+              # if else statement for dts with only 1 row of data
+              if((length(unique(temp_bhi_ds_dt$age_group_id)) + sex_val) > 3){
+              
+                # aggregate bhi ds values and prev values at same time
+                temp_bhi_ds_dt_agg <- data.table(aggregate(cbind(bhi_value, incident_prevalent_cases) ~ location_id + year_id + sex_id + cause_id + cause_name + type_of_care, data = temp_bhi_ds_dt, FUN = sum))
+                
+                # if state to aggregate over sex if gbd sex id = 3
+                if(sex == 3){
+                  temp_bhi_ds_dt_agg <- data.table(aggregate(cbind(bhi_value, incident_prevalent_cases) ~ location_id + year_id + cause_id + cause_name + type_of_care, data = temp_bhi_ds_dt_agg, FUN = sum))
+                  temp_bhi_ds_dt_agg[, sex_id := 3]
+                } else{
+                  # keep sex id
+                } 
+                  } else {
+                    
+                  temp_bhi_ds_dt_agg <- copy(temp_bhi_ds_dt)
+                }
+              
+              # creating sex id column
+              temp_age_group_id_dt[, sex_id := sex_val]
+              
+              # creating population age column in dataset
+              temp_bhi_ds_dt_agg[, population_age := age]
+              
+              # merging bhi values with age group id dt
+              temp_age_group_id_dt <- merge(temp_age_group_id_dt, temp_bhi_ds_dt_agg, by = c("location_id", "year_id", "sex_id", "cause_id", "cause_name", "type_of_care", "population_age"), all.x = T)
+              
+              # creating unique list name and storing in list
+              list_name <- paste0(c(t, loc, year, age, sex), collapse = "_")
+              my_list[[list_name]] <- copy(temp_age_group_id_dt)
+          
+        } # end of gbd sex id loop
+        
+      }   # end of age group id loop
+
+    } # end of year loop
+    
+    
+  } # end of location loop
+  
+  
+} # end of title loop
+
+# binding list into one dt
+dt <- rbindlist(my_list)
+
+```  
+
+Cleaning up aggregation level column
+```{r}
+# reorder dataset
+setorder(dt, title, location_id, year_id, population_age, sex_id)
+
+# reformatting aggregation level column
+dt[aggregation_level == "cumulative value", aggregation_level := "cumulative"]
+dt[aggregation_level == "cumulative_value", aggregation_level := "cumulative"]
+dt[aggregation_level == "cumulative values", aggregation_level := "cumulative"]
+dt[aggregation_level == "total", aggregation_level := "cumulative"]
+dt[aggregation_level == "per patient values", aggregation_level := "per patient"]
+dt[aggregation_level == "unit", aggregation_level := "unit cost"]
+
+# calculating final value if multiplication factor present
+dt[, value_final := annual_value * mult_factor]
+summary(dt$value_final)
+
+```
+
+Creating per prevalence values
+```{r}
+# create separate prevalence value columns
+dt[, bhi_inc_prev_val := incident_prevalent_cases]
+setnames(dt, old = "incident_prevalent_cases", new = "lit_inc_prev_val")
+
+# pre-adjusted values set to 1 for non cumulative values
+dt[!aggregation_level == "cumulative", lit_inc_prev_val := 1]
+
+# calculating per prevalent case values
+dt[, `:=` (bhi_per_inc_prev_val = (bhi_value / bhi_inc_prev_val), lit_per_inc_prev_val = (value_final / lit_inc_prev_val))]
+```
+
+Saving out dt
+```{r}
+fwrite(dt, paste0(data_output_dir, condition_name, "FILEPATH"))
+
+```

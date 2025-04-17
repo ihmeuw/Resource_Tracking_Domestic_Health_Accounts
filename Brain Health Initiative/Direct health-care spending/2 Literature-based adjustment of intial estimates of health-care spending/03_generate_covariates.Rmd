@@ -1,0 +1,309 @@
+Title:    03_generate_covariates.Rmd 
+ Project:  ##BHI - Brain Health Initiative
+ Purpose : Generate covariate values for the direct spending regression model and correlation matrix
+           
+     
+ Author: USERNAME
+ Date: 2025 03 07
+ 
+Setting up environment
+```{r}
+# clear environment
+rm(list = ls())
+
+# Set up directory roots #
+if (!exists("code_repo"))  {
+  code_repo <- unname(ifelse(Sys.info()['sysname'] == "Windows", "FILEPATH", paste0("FILEPATH", Sys.info()['user'][1], "FILEPATH")))
+}
+
+# packages
+library(data.table)
+library(lme4)
+library(lmerTest)
+
+# file paths
+data_dir <- "FILEPATH"
+model_data_path <- paste0(data_dir, "FILEPATH")
+domestic_health_path <- "FILEPATH"
+fig_out_dir <-  "FILEPATH"
+
+# functions
+source("FILEPATH")
+source("FILEPATH")
+source('FILEPATH')
+source("FILEPATH")
+source(paste0(code_repo, 'FILEPATH'))
+
+# release number
+gbd_release_id <- 16
+
+# get hierarchy
+hierarchy <- get_location_metadata(
+  location_set_id = 35,
+  release_id = gbd_release_id
+)
+
+```
+
+Import data
+```{r}
+# main data
+dt <- fread(model_data_path)
+
+# domestic health spending dataset
+dhe_dt <- fread(domestic_health_path)
+
+```
+
+Data info
+```{r}
+locs <- sort(unique(dt$location_id))
+years <- c(2000:2019)
+age_groups <- c(1, 6:20, 30, 160)
+sex <- c(1, 2)
+
+```
+
+################################################################################
+COVARIATES
+################################################################################
+
+GDP PC
+```{r}
+# get gdp
+gdp <- data.table(read_feather("FILEPATH"))
+gdp <- gdp[scenario == 0 & year <= 2019 & year >= 2000]
+gdp <- melt.data.table(gdp, id.vars = c("year", "iso3", "scenario"), value.name = "data_var", variable.name = "draw")
+gdp <- gdp[, draw := str_replace(draw, "draw_", "")]
+gdp <- gdp[, draw := as.numeric(as.character(draw))]
+gdp[, scenario := NULL]
+
+# condensing and renaming columns
+gdp <- gdp[year %in% years,
+           .(gdp_pc = mean(data_var)),
+           by = .(year_id = year, ihme_loc_id = iso3)]
+
+# creating gbd dataset
+gdp <- merge(gdp[, .(ihme_loc_id, 
+                        year_id, 
+                        gdp_pc)], hierarchy[, .(location_id, 
+                                                    location_name, 
+                                                    ihme_loc_id)], by = 'ihme_loc_id')
+
+# convert from 2022 USD to 2021 USD
+gdp_dt_conv <- currency_conversion(gdp,
+                           col.loc = 'ihme_loc_id',
+                           col.value = 'gdp_pc',
+                           currency = 'usd',
+                           currency.year = 2022 ,
+                           base.year = 2021,
+                           base.unit = 'usd',
+                           converter.version = 7,
+                           simplify = F)
+
+# storing columns to keep
+keep_cols <- c("ihme_loc_id", "year_id", "location_id", "currency_year_new", "gdp_pc_new")
+
+# condense dataset
+gdp_dt <- gdp_dt_conv[, ..keep_cols]
+
+# rename GDP per capita column
+setnames(gdp_dt, old = "gdp_pc_new", new = "gdp_pc")
+
+# removing extra columns
+gdp_dt[, currency_year_new := NULL]
+
+```
+
+Fraction of population older than 65
+```{r}
+# pulling total population values
+tot_pops_dt <- get_population(location_id = locs,
+                       year_id = years,
+                       age_group_id = 22,
+                       sex_id = 3,
+                       release_id = gbd_release_id
+                       )
+
+# adding ihme loc id 
+tot_pops_dt <- merge(tot_pops_dt, hierarchy[, .(location_id, ihme_loc_id)], by = "location_id")
+
+# condensing columns
+tot_pops_dt <- tot_pops_dt[, .(ihme_loc_id, 
+                               location_id,
+                               year_id, 
+                               population)]
+
+#  get population values stratified by age
+age_pop_dt <- get_population(location_id = locs,
+                       year_id = years,
+                       age_group_id = c(1, 6:20, 30:32, 235),
+                       sex_id = sex,
+                       release_id = gbd_release_id
+                       )
+
+# filtering for population values of 65+
+pop_over65 <- age_pop_dt[age_group_id %in% c(18:20, 30:32, 235), .(location_id, year_id, age_group_id, sex_id, population)]
+
+# aggregate population values by country and year for population totals of 65+ 
+pop_over65_agg <- data.table(aggregate(population ~ location_id + year_id, data = pop_over65, FUN = sum))
+
+# rename population agg col
+setnames(pop_over65_agg, old = "population", new = "pop_65_and_over")
+
+# merge with total population values
+pop_dt <- merge(pop_over65_agg, tot_pops_dt, by = c("location_id", "year_id"), all.x = T)
+
+# calculate fraction of population that is 65+
+pop_dt[, pop_65_frac := pop_65_and_over / population]
+
+# removing pop totes col
+pop_dt[, `:=` (population = NULL, pop_65_and_over = NULL)]
+
+```
+
+Adding socio-demographic index (SDI)
+```{r}
+# retreiving sdi values
+sdi_dt <- get_covariate_estimates(covariate_id = 881,
+                                   location_id = locs,
+                                   year_id =  years,
+                                   release_id = gbd_release_id) 
+
+# condense dataset
+sdi_dt <- sdi_dt[, .(location_id, 
+                    year_id,
+                    sdi_val = mean_value)]
+
+```
+
+Adding health access and quality index (HAQI)
+```{r}
+# retreiving haqi values
+haqi <- get_covariate_estimates(covariate_id = 1099,
+                                location_id = locs,
+                                year_id = years,
+                                release_id = gbd_release_id)
+
+# renaming haqi column
+setnames(haqi, old = "mean_value", new = "haqi_val")
+
+# condense dataset
+haqi_dt <- haqi[, .(location_id, year_id, haqi_val)]
+
+```
+
+Adding domestic health spending
+```{r}
+# only retaining country-level locations
+dhe_dt <- dhe_dt[location_id %in% locs]
+
+```
+
+Adding covariates to dataset
+```{r}
+dt <- merge(dt, gdp_dt, by = c("location_id", "ihme_loc_id", "year_id"), all.x = T)
+dt <- merge(dt, pop_dt, by = c("location_id", "ihme_loc_id", "year_id"), all.x = T)
+dt <- merge(dt, sdi_dt, by = c("location_id", "year_id"), all.x = T)
+dt <- merge(dt, haqi_dt, by = c("location_id", "year_id"), all.x = T)
+dt <- merge(dt, dhe_dt, by = c("location_id", "year_id"), all.x = T)
+
+```
+
+Adding sex label
+```{r}
+# adding sex label
+dt[sex_id == 3, sex_label := "Both Sexes"]
+dt[sex_id == 1, sex_label := "Male"]
+dt[sex_id == 2, sex_label := "Female"]
+
+```
+
+Adding disorder classification
+```{r}
+# mental health disorders
+mental_disorders <- c(559,
+                      560,
+                      562,
+                      566,
+                    	567,
+                    	570,
+                    	571,
+                    	572,
+                    	575,
+                    	578,
+                      579,
+                      582,
+                      585,
+                      718,
+                      9999)
+
+# neurological health disorders
+neuro_disorders <- c(332,
+                     337,
+                     477,
+                     494,
+                     543,
+                     544,
+                     545,
+                     546,
+                     554,
+                     972)
+
+# labeling each disorder based on classification
+dt[, disorder_classification := ifelse(cause_id %in% mental_disorders, "mental",
+                                       ifelse(cause_id %in% neuro_disorders, "neurological", NA))]
+
+```
+
+Adding super region and region name
+```{r}
+dt <- merge(dt, hierarchy[, .(location_id, super_region_name, region_name)], by = "location_id", all.x = T)
+
+```
+
+Adding interaction variable for cause and type of care
+```{r}
+dt[, causexcare_interaction := interaction(cause_name, type_of_care, sep = "_")]
+
+```
+
+Adding new age class columns to model dt
+```{r}
+# Age group class
+dt[, age_group_class := fcase(
+  grepl("under 1|0-14|5-11|6-18|5-14|8-17|7-18", population_age), "Children",
+  grepl("12-18|12-17|<=17|<=18|15-19|15-17", population_age), "Adolescent",
+  grepl("5-91|15\\+|18\\+|19\\+|20\\+|30\\+|40\\+|all ages", population_age), "All Ages",
+  grepl("0-44|15-60|15-64|16-85|18-65|18-60|18-70|18-64|18-75|17\\+|20-60|20-64|20-68|19-78|20-60|20-64|16-75|under 50|under 65", population_age), "Adults",
+  grepl("50\\+|55\\+|45-64|50-64", population_age), "Senior Adults",
+  grepl("70\\+|65\\+|75\\+|80\\+|79-96|85-100|60\\+|65-75|74-88|65-79|over 60", population_age), "Elderly",
+  default = "NO CLASS"
+)]
+
+dt[population_age == "under 5", age_group_class := "Children"]
+
+# Population age adjusted
+dt[, population_age_adj := fcase(
+  grepl("8-17|12-17|12-18|15-17|15-19|6-18|7-18", population_age), "Teenagers",
+  grepl("15-60|15-64|18-60|18-64|18-65|18-70|20-60|20-64|20-68|under 65", population_age), "Working Age",
+  grepl("50-64|45-64", population_age), "Midlife",
+  grepl("0-14|<=17|<=18", population_age), "<=18ish",
+  grepl("15+|17+|18+|19+|20+|16-75|16-85|18-75|19-78", population_age), "18ish+",
+  grepl("5-91|all ages", population_age), "All Ages",
+  grepl("5-11|5-14", population_age), "Adolescence",
+  grepl("0-44|under 50", population_age), "Under 50",
+  grepl("over 60|60+", population_age), "60+",
+  grepl("50+|55+", population_age), "50ish+",
+  grepl("65-75|65-79|65+|70+|74-88|75+|79-96|80+|85-100", population_age), "Retired",
+  default = "NO CLASS"
+)]
+
+dt[population_age_adj == "NO CLASS", population_age_adj := population_age]
+
+```
+
+Saving out dt 
+```{r}
+fwrite(dt, paste0(data_dir, "FILEPATH"))
+```
