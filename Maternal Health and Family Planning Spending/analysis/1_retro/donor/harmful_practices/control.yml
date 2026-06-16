@@ -1,0 +1,25 @@
+#
+# configuration/control file for keyword search scripts
+#
+
+# force: force reprocessing of inputs?
+prep_inputs:
+    crs:
+        force: true
+    undp:
+        force: false
+    unwomen:
+        force: false
+
+# repartition: repartition the data if it has already been done?
+# rekws: re-run the keyword search if it has already been run?
+run_kws:
+    crs:
+        repartition: true
+        rekws: true
+    undp:
+        repartition: false
+        rekws: false
+    unwomen:
+        repartition: false
+        rekws: false

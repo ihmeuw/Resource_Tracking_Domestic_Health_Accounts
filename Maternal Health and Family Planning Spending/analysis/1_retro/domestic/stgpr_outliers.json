@@ -1,0 +1,12 @@
+{
+    "public_dis2.1": [
+        {"iso": "AFG", "data_src": "nha", "year_id": 2017},
+        {"iso": "URY", "data_src": "nidi", "year_id": 2008},
+        {"iso": "GNQ", "data_src": "nidi", "year_id": 2012}
+    ],
+    "public_dis2.3": [
+        {"iso": "GNQ", "data_src": "nidi", "year_id": 2012},
+        {"iso": "LAO", "data_src": "nidi", "year_id": 2015},
+        {"iso": "CHN", "data_src": "nidi", "year_id": 2010}
+    ]
+}

@@ -1,0 +1,138 @@
+# control model runs
+#
+#  -- schema --
+# value_id:
+#     stage1_select: boolean (whether or not to run stage1 model selection for this value_id)
+#     run: boolean (whether or not to run st-gpr model for this value_id)
+#     nparallel: int (arg passed to stgpr_sendoff, number of parallel jobs to use)
+#     custom_stage1_file: str (optional file name to a prepped custom stage 1
+#                              within the model_value's directory)
+#
+
+# reproductive health spending
+public_dis2.1:
+    stage1_select: true
+    run: true
+    nparallel: 20
+    custom_stage1_file: ""
+
+public_dis2.3:
+    stage1_select: true
+    run: true
+    nparallel: 20
+    custom_stage1_file: ""
+    
+
+# contraceptive method use
+private_condom:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+private_implant:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+private_injectable:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+private_iud:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+    
+private_other:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+private_pill:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+private_sterilization:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+# maternal health utilization indicators
+c_section:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+public_facility_delivery:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+private_facility_delivery:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+home_delivery:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: ""
+
+# maternal health spending
+oop_antenatal:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
+
+oop_public_facility_delivery:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
+    
+    
+oop_public_facility_c_section:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
+
+
+oop_private_facility_delivery:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
+    
+    
+oop_private_facility_c_section:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
+
+oop_home_delivery:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
+
+oop_postnatal:
+    stage1_select: false
+    run: false
+    nparallel: 20
+    custom_stage1_file: "prepped_custom_stage1.csv"
