@@ -14,7 +14,7 @@ By the time of each of our publications, cleaned code should be available in thi
 
 *[Examining malaria treatment and prevention spending efficiency in malaria-endemic countries, 2000-2020] (https://link.springer.com/content/pdf/10.1186/s12936-024-05165-w.pdf)*
 
-*[Historic and future spending estimates of maternal health and family planning in 139 low- and middle-income countries, 2000-2030: a modelling study](https://bmjpublichealth.bmj.com/content/4/2/e004211)*
+*[Historic and future spending estimates of maternal health and family planning in 139 low- and middle-income countries, 2000-2030: a modelling study] (https://bmjpublichealth.bmj.com/content/4/2/e004211)*
 
 
 *Please note that code for previous versions of results may be found in the `Branch` dropdown menu*.
